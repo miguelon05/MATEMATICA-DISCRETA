@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Matematica Discreta</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <h1 id="appTitle">Arbol de expresiones</h1>
+        <p id="appSubtitle">Notacion polaca, usual y polaca inversa</p>
+      </div>
+
+      <nav class="tabs" aria-label="Secciones del sitio">
+        <button class="tab active" type="button" data-view="tree">Arbol</button>
+        <button class="tab" type="button" data-view="paths">Recorridos</button>
+      </nav>
+
+      <button id="resetTree" class="danger top-action" type="button">Reiniciar</button>
+    </header>
+
+    <main id="treeView" class="layout view active">
+      <section class="workspace" aria-label="Area del arbol">
+        <div class="tree-toolbar">
+          <label>
+            Notacion
+            <select id="notationSelect">
+              <option value="infix">Usual o infija</option>
+              <option value="prefix">Polaca</option>
+              <option value="postfix">Polaca inversa</option>
+            </select>
+          </label>
+          <div class="toolbar-actions">
+            <button id="loadExample" type="button">Ejemplo</button>
+            <button id="centerTree" type="button">Centrar</button>
+          </div>
+        </div>
+
+        <div class="tree-scroll">
+          <svg id="edgesLayer" aria-hidden="true"></svg>
+          <div id="treeArea" class="tree-area"></div>
+        </div>
+
+        <div class="output workspace-output">
+          <div>
+            <h2>Expresion</h2>
+            <div id="expressionText" class="result-box">Todavia no hay arbol.</div>
+          </div>
+          <div>
+            <h2>Resultado</h2>
+            <div id="resultText" class="result-box">Crea nodos numericos para calcular.</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel" aria-label="Editor del nodo">
+        <h2>Nodo seleccionado</h2>
+        <p id="selectedHint" class="hint">Presiona el boton + para crear la primera bolita.</p>
+
+        <div id="nodeEditor" class="editor hidden">
+          <label>
+            Tipo
+            <select id="nodeType">
+              <option value="value">Valor / hoja</option>
+              <option value="operator">Operacion</option>
+            </select>
+          </label>
+
+          <label id="valueField">
+            Valor
+            <input id="nodeValue" type="text" value="A" maxlength="12" />
+          </label>
+
+          <label id="operatorField" class="hidden">
+            Operacion
+            <select id="nodeOperator">
+              <option value="+">+ suma</option>
+              <option value="-">- resta</option>
+              <option value="*">* multiplicacion</option>
+              <option value="/">/ division</option>
+              <option value="^">potencia</option>
+              <option value="root">raiz</option>
+              <option value="!">factorial</option>
+              <option value="d">derivacion</option>
+            </select>
+          </label>
+
+          <label id="variableField" class="hidden">
+            Variable
+            <input id="derivativeVariable" type="text" value="x" maxlength="3" />
+          </label>
+
+          <div class="actions">
+            <button id="addLeft" type="button">Agregar izquierda</button>
+            <button id="addRight" type="button">Agregar derecha</button>
+            <button id="removeNode" class="danger" type="button">Eliminar nodo</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <main id="pathsView" class="layout view">
+      <section class="workspace" aria-label="Simulador de recorridos">
+        <div class="graph-toolbar">
+          <div class="segmented" role="group" aria-label="Modo del grafo">
+            <button class="mode-button active" type="button" data-graph-mode="create">Crear nodo</button>
+            <button class="mode-button" type="button" data-graph-mode="connect">Unir nodos</button>
+            <button class="mode-button" type="button" data-graph-mode="move">Mover</button>
+          </div>
+
+          <label class="weight-control">
+            Peso
+            <input id="edgeWeight" type="number" min="0" step="any" value="1" />
+          </label>
+
+          <div class="toolbar-actions">
+            <button id="loadGraphExample" type="button">Ejemplo</button>
+            <button id="centerGraph" type="button">Centrar</button>
+            <button id="clearGraph" class="danger" type="button">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="graph-scroll">
+          <svg id="graphEdges" aria-hidden="true"></svg>
+          <div id="graphArea" class="graph-area"></div>
+        </div>
+
+        <div class="output graph-output">
+          <div>
+            <h2>Algoritmo</h2>
+            <div class="run-card">
+              <label>
+                Metodo
+                <select id="algorithmSelect" disabled title="Dijkstra queda fijo por ahora">
+                  <option value="dijkstra">Dijkstra</option>
+                  <option value="floyd" disabled>Floyd-Warshall</option>
+                </select>
+              </label>
+              <label>
+                Nodo inicial
+                <select id="startNodeSelect"></select>
+              </label>
+              <label>
+                Nodo final
+                <select id="endNodeSelect"></select>
+              </label>
+              <label>
+                Caminos
+                <select id="pathModeSelect">
+                  <option value="simple">Sin repetir nodos</option>
+                  <option value="walks">Permitir repetir nodos</option>
+                </select>
+              </label>
+              <button id="runAlgorithm" type="button">Calcular rutas</button>
+            </div>
+          </div>
+          <div>
+            <h2>Resultado</h2>
+            <div id="pathSummary" class="result-box">Crea un digrafo ponderado para calcular.</div>
+            <div id="pathsTable" class="table-box result-paths">Sin calculo todavia.</div>
+          </div>
+        </div>
+
+        <div class="data-grid single">
+          <section>
+            <h2>Pasos</h2>
+            <div id="stepsBox" class="table-box steps-box">Ejecuta un algoritmo para ver el recorrido.</div>
+          </section>
+        </div>
+      </section>
+
+      <aside class="panel graph-panel" aria-label="Editor del grafo">
+        <h2>Editor de recorridos</h2>
+        <p id="graphHint" class="hint">Usa Crear nodo y haz clic en el lienzo. Luego usa Unir nodos para crear flechas con peso no negativo.</p>
+
+        <div id="graphNodeEditor" class="editor hidden">
+          <label>
+            Nombre del nodo
+            <input id="graphNodeLabel" type="text" maxlength="8" />
+          </label>
+          <button id="deleteGraphNode" class="danger" type="button">Eliminar nodo</button>
+        </div>
+
+        <div id="graphEdgeEditor" class="editor hidden">
+          <label>
+            Arista
+            <input id="graphEdgeLabel" type="text" readonly />
+          </label>
+          <label>
+            Peso de la arista
+            <input id="graphEdgeWeight" type="number" min="0" step="any" />
+          </label>
+          <button id="deleteGraphEdge" class="danger" type="button">Eliminar arista</button>
+        </div>
+
+        <div class="info-block">
+          <h3>Arcos</h3>
+          <div id="edgeList" class="edge-list">No hay arcos.</div>
+        </div>
+
+      </aside>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
