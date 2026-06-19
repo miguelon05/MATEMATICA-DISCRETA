@@ -379,18 +379,17 @@ function evaluate(node) {
   if (node.type === "value") {
     const raw = (node.value || "").trim();
     const number = Number(raw);
-    if (raw !== "" && Number.isFinite(number)) return { ok: true, value: number, text: String(number) };
+    if (raw !== "" && Number.isFinite(number)) return { ok: true, value: number, text: cleanNumber(number) };
     return { ok: false, text: `El valor "${raw || "?"}" no es numerico.` };
   }
 
-  const left = evaluate(node.left);
-  const right = evaluate(node.right);
   const op = node.operator;
 
   if (op === "d") {
-    return { ok: false, text: derivative(node.left, node.variable || "x") };
+    return evaluateDerivative(node.left, node.variable || "x");
   }
 
+  const left = evaluate(node.left);
   if (!left.ok) return left;
 
   if (op === "!") {
@@ -402,6 +401,7 @@ function evaluate(node) {
     return { ok: true, value: total, text: String(total) };
   }
 
+  const right = evaluate(node.right);
   if (op === "root") {
     if (!right.ok) return right;
     const index = left.value;
@@ -431,7 +431,101 @@ function numeric(value) {
 }
 
 function cleanNumber(value) {
-  return Number(value.toFixed(8)).toString();
+  if (!Number.isFinite(value)) return String(value);
+  const rounded = Number(value.toFixed(2));
+  if (Math.abs(rounded) === 0) return "0";
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function containsVariable(node, variable) {
+  if (!node) return false;
+  if (node.type === "value") return (node.value || "").trim() === variable;
+  return containsVariable(node.left, variable) || containsVariable(node.right, variable);
+}
+
+function evaluateDerivative(node, variable) {
+  if (!node) return { ok: false, text: "Falta completar la expresion a derivar." };
+  if (!containsVariable(node, variable)) return numeric(0);
+
+  if (node.type === "value") {
+    const raw = (node.value || "").trim();
+    return raw === variable
+      ? numeric(1)
+      : { ok: false, text: `No se puede calcular la derivada de "${raw || "?"}".` };
+  }
+
+  const leftDerivative = evaluateDerivative(node.left, variable);
+  if (!leftDerivative.ok) return leftDerivative;
+
+  if (node.operator === "!") {
+    return leftDerivative.value === 0
+      ? numeric(0)
+      : { ok: false, text: "No se puede calcular una derivada numerica de factorial con variable." };
+  }
+
+  if (node.operator === "d") {
+    return { ok: false, text: "No se puede calcular una segunda derivada numerica sin mas datos." };
+  }
+
+  const rightDerivative = evaluateDerivative(node.right, variable);
+  if (!rightDerivative.ok) return rightDerivative;
+
+  if (node.operator === "+") return numeric(leftDerivative.value + rightDerivative.value);
+  if (node.operator === "-") return numeric(leftDerivative.value - rightDerivative.value);
+
+  if (node.operator === "*") {
+    const firstTerm = leftDerivative.value === 0 ? numeric(0) : multiplyByValue(leftDerivative.value, node.right);
+    if (!firstTerm.ok) return firstTerm;
+    const secondTerm = rightDerivative.value === 0 ? numeric(0) : multiplyByValue(rightDerivative.value, node.left);
+    if (!secondTerm.ok) return secondTerm;
+    return numeric(firstTerm.value + secondTerm.value);
+  }
+
+  if (node.operator === "/") {
+    const denominator = evaluate(node.right);
+    if (!denominator.ok) return derivativeNeedsValue();
+    if (denominator.value === 0) return { ok: false, text: "No se puede dividir entre 0." };
+
+    const firstTerm = leftDerivative.value === 0 ? numeric(0) : multiplyByValue(leftDerivative.value, node.right);
+    if (!firstTerm.ok) return firstTerm;
+    const secondTerm = rightDerivative.value === 0 ? numeric(0) : multiplyByValue(rightDerivative.value, node.left);
+    if (!secondTerm.ok) return secondTerm;
+    return numeric((firstTerm.value - secondTerm.value) / Math.pow(denominator.value, 2));
+  }
+
+  if (node.operator === "^") {
+    const exponent = evaluate(node.right);
+    if (!exponent.ok) return derivativeNeedsValue();
+    if (rightDerivative.value !== 0) return derivativeNeedsValue();
+    if (exponent.value === 0) return numeric(0);
+    if (exponent.value === 1) return numeric(leftDerivative.value);
+
+    const base = evaluate(node.left);
+    if (!base.ok) return derivativeNeedsValue();
+    return numeric(exponent.value * Math.pow(base.value, exponent.value - 1) * leftDerivative.value);
+  }
+
+  if (node.operator === "root") {
+    if (leftDerivative.value !== 0) return derivativeNeedsValue();
+    if (rightDerivative.value === 0) return numeric(0);
+
+    const index = evaluate(node.left);
+    const radicand = evaluate(node.right);
+    if (!index.ok || !radicand.ok || index.value === 0) return derivativeNeedsValue();
+    const factor = (1 / index.value) * Math.pow(radicand.value, 1 / index.value - 1);
+    return numeric(factor * rightDerivative.value);
+  }
+
+  return { ok: false, text: "Operacion no reconocida." };
+}
+
+function multiplyByValue(multiplier, node) {
+  const value = evaluate(node);
+  return value.ok ? numeric(multiplier * value.value) : derivativeNeedsValue();
+}
+
+function derivativeNeedsValue() {
+  return { ok: false, text: "La derivada depende de una variable y falta un valor numerico para calcularla." };
 }
 
 function derivative(node, variable) {
