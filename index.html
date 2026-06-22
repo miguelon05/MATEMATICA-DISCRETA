@@ -124,6 +124,7 @@
 
         <div class="graph-scroll">
           <svg id="graphEdges" aria-hidden="true"></svg>
+          <div id="graphPathOverlay" class="graph-path-overlay hidden" aria-live="polite"></div>
           <div id="graphArea" class="graph-area"></div>
         </div>
 
@@ -133,9 +134,9 @@
             <div class="run-card">
               <label>
                 Metodo
-                <select id="algorithmSelect" disabled title="Dijkstra queda fijo por ahora">
+                <select id="algorithmSelect" title="Elige el algoritmo para calcular el camino mas corto">
                   <option value="dijkstra">Dijkstra</option>
-                  <option value="floyd" disabled>Floyd-Warshall</option>
+                  <option value="floyd">Floyd-Warshall</option>
                 </select>
               </label>
               <label>
@@ -159,6 +160,7 @@
           <div>
             <h2>Resultado</h2>
             <div id="pathSummary" class="result-box">Crea un digrafo ponderado para calcular.</div>
+            <div id="algorithmTiming" class="result-box timing-box">Tiempo real de busqueda: sin calcular.</div>
             <div id="pathsTable" class="table-box result-paths">Sin calculo todavia.</div>
           </div>
         </div>

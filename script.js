@@ -27,6 +27,7 @@ const pathsView = document.getElementById("pathsView");
 
 const graphArea = document.getElementById("graphArea");
 const graphEdges = document.getElementById("graphEdges");
+const graphPathOverlay = document.getElementById("graphPathOverlay");
 const graphHint = document.getElementById("graphHint");
 const graphNodeEditor = document.getElementById("graphNodeEditor");
 const graphNodeLabel = document.getElementById("graphNodeLabel");
@@ -46,6 +47,7 @@ const endNodeSelect = document.getElementById("endNodeSelect");
 const pathModeSelect = document.getElementById("pathModeSelect");
 const runAlgorithm = document.getElementById("runAlgorithm");
 const pathSummary = document.getElementById("pathSummary");
+const algorithmTiming = document.getElementById("algorithmTiming");
 const pathsTable = document.getElementById("pathsTable");
 const edgeList = document.getElementById("edgeList");
 const stepsBox = document.getElementById("stepsBox");
@@ -56,6 +58,9 @@ const LEVEL_GAP = 105;
 const LEAF_GAP = 70;
 const GRAPH_NODE_SIZE = 58;
 const INF = Number.POSITIVE_INFINITY;
+const TIMING_MIN_TOTAL_MS = 80;
+const TIMING_MAX_RUNS = 50000;
+const TIMING_WARMUP_RUNS = 20;
 
 let nextId = 1;
 let root = null;
@@ -70,8 +75,10 @@ let selectedGraphEdgeId = null;
 let pendingEdgeFromId = null;
 let highlightedEdgeIds = new Set();
 let highlightedNodeIds = new Set();
+let currentShortestPathInfo = null;
 let activeView = "tree";
 
+// Funcion: crea un nodo nuevo del arbol de expresiones.
 function createNode(parentId = null) {
   return {
     id: nextId++,
@@ -88,6 +95,7 @@ function createNode(parentId = null) {
   };
 }
 
+//  crea una hoja numerica o simbolica para el arbol
 function valueNode(value) {
   const node = createNode(null);
   node.type = "value";
@@ -95,6 +103,7 @@ function valueNode(value) {
   return node;
 }
 
+// crea un nodo operador y conecta sus hijos
 function operationNode(operator, left, right = null) {
   const node = createNode(null);
   node.type = "operator";
@@ -106,26 +115,29 @@ function operationNode(operator, left, right = null) {
   return node;
 }
 
+// carga el ejemplo del arbol de expresiones.
 function loadDemoTree() {
   nextId = 1;
+  const factorialValue = valueNode("5");
   root = operationNode(
     "*",
     operationNode(
-      "+",
-      operationNode("-", valueNode("A"), valueNode("B")),
-      operationNode("+", valueNode("C"), valueNode("D")),
-    ),
-    operationNode(
       "/",
-      valueNode("E"),
-      operationNode("*", valueNode("F"), operationNode("+", valueNode("G"), valueNode("H"))),
+      operationNode("-", valueNode("8"), valueNode("4")),
+      operationNode(
+        "+",
+        operationNode("^", operationNode("d", valueNode("7")), valueNode("2")),
+        operationNode("root", valueNode("16"), valueNode("2")),
+      ),
     ),
+    operationNode("!", factorialValue),
   );
-  selectedId = root.id;
+  selectedId = factorialValue.id;
   notationSelect.value = "infix";
   updateTree();
 }
 
+//  muestra el texto visible de cada nodo del arbol
 function operatorLabel(node) {
   if (node.type === "value") return node.value || "?";
   if (node.operator === "root") return "raiz";
@@ -133,24 +145,28 @@ function operatorLabel(node) {
   return node.operator;
 }
 
+// gfuncion: indica cuantos hijos necesita cada operador
 function operatorArity(node) {
   if (node.type !== "operator") return 0;
   if (node.operator === "!" || node.operator === "d") return 1;
   return 2;
 }
 
+// Funcion: busca un nodo del arbol por su id.
 function findNode(id, node = root) {
   if (!node) return null;
   if (node.id === id) return node;
   return findNode(id, node.left) || findNode(id, node.right);
 }
 
+// Funcion: encuentra el padre de un nodo del arbol.
 function parentOf(id, node = root) {
   if (!node) return null;
   if ((node.left && node.left.id === id) || (node.right && node.right.id === id)) return node;
   return parentOf(id, node.left) || parentOf(id, node.right);
 }
 
+// Funcion: calcula el ancho necesario para dibujar el arbol.
 function measure(node) {
   if (!node) return 0;
   const leftWidth = measure(node.left);
@@ -160,6 +176,7 @@ function measure(node) {
   return node.width;
 }
 
+// Funcion: asigna posiciones x/y a cada nodo del arbol.
 function layout(node, left, depth) {
   if (!node) return;
   node.x = left + node.width / 2;
@@ -177,11 +194,13 @@ function layout(node, left, depth) {
   }
 }
 
+// Funcion: calcula la profundidad maxima del arbol.
 function maxDepth(node) {
   if (!node) return 0;
   return 1 + Math.max(maxDepth(node.left), maxDepth(node.right));
 }
 
+// Funcion: redibuja todo el arbol en pantalla.
 function renderTree() {
   treeArea.innerHTML = "";
   edgesLayer.innerHTML = "";
@@ -220,6 +239,7 @@ function renderTree() {
   updateOutput();
 }
 
+// Funcion: dibuja las lineas entre padres e hijos del arbol.
 function drawEdges(node) {
   if (!node) return;
   [node.left, node.right].forEach((child) => {
@@ -238,6 +258,7 @@ function drawEdges(node) {
   drawEdges(node.right);
 }
 
+// Funcion: dibuja las bolitas del arbol.
 function drawNodes(node) {
   if (!node) return;
   const element = document.createElement("button");
@@ -260,6 +281,7 @@ function drawNodes(node) {
   drawNodes(node.right);
 }
 
+// Funcion: dibuja los botones + para agregar hijos.
 function drawAddButton(node, side) {
   if (node[side]) return;
   const arity = operatorArity(node);
@@ -284,6 +306,7 @@ function drawAddButton(node, side) {
   treeArea.appendChild(button);
 }
 
+// Funcion: actualiza el panel lateral del nodo seleccionado.
 function updateEditor() {
   const node = findNode(selectedId);
   if (!node) {
@@ -304,6 +327,7 @@ function updateEditor() {
   syncChildButtons();
 }
 
+// Funcion: muestra u oculta campos del editor segun el tipo de nodo.
 function syncEditorVisibility() {
   const isOperator = nodeType.value === "operator";
   valueField.classList.toggle("hidden", isOperator);
@@ -311,6 +335,7 @@ function syncEditorVisibility() {
   variableField.classList.toggle("hidden", !(isOperator && nodeOperator.value === "d"));
 }
 
+// Funcion: activa o desactiva botones para agregar hijos.
 function syncChildButtons() {
   const node = findNode(selectedId);
   if (!node) return;
@@ -368,11 +393,13 @@ function expression(node, mode) {
   return `(${left} ${displayOp(op)} ${right})`;
 }
 
-function displayOp(op) {
+
+    function displayOp(op) {
   if (op === "*") return "*";
   if (op === "^") return "^";
   return op;
 }
+
 
 function evaluate(node) {
   if (!node) return { ok: false, text: "Falta completar un nodo." };
@@ -437,12 +464,14 @@ function cleanNumber(value) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
 }
 
+
 function containsVariable(node, variable) {
   if (!node) return false;
   if (node.type === "value") return (node.value || "").trim() === variable;
   return containsVariable(node.left, variable) || containsVariable(node.right, variable);
 }
 
+//derivada
 function evaluateDerivative(node, variable) {
   if (!node) return { ok: false, text: "Falta completar la expresion a derivar." };
   if (!containsVariable(node, variable)) return numeric(0);
@@ -519,15 +548,18 @@ function evaluateDerivative(node, variable) {
   return { ok: false, text: "Operacion no reconocida." };
 }
 
+// Funcion: multiplica un valor por el resultado de otro nodo.
 function multiplyByValue(multiplier, node) {
   const value = evaluate(node);
   return value.ok ? numeric(multiplier * value.value) : derivativeNeedsValue();
 }
 
+// Funcion: mensaje cuando la derivada necesita un valor de variable.
 function derivativeNeedsValue() {
   return { ok: false, text: "La derivada depende de una variable y falta un valor numerico para calcularla." };
 }
 
+// Funcion: construye la derivada como expresion de texto.
 function derivative(node, variable) {
   if (!node) return "Falta completar la expresion a derivar.";
   if (node.type === "value") {
@@ -553,6 +585,7 @@ function derivative(node, variable) {
   return `d/d${variable}(${expression(node, "infix")})`;
 }
 
+// Funcion: actualiza la expresion y el resultado en pantalla.
 function updateOutput() {
   if (!root) {
     expressionText.textContent = "Todavia no hay arbol.";
@@ -564,10 +597,12 @@ function updateOutput() {
   resultText.textContent = result.text;
 }
 
+// Funcion: punto central para refrescar el arbol.
 function updateTree() {
   renderTree();
 }
 
+// Funcion: cambia entre la vista de arbol y la vista de recorridos.
 function setView(viewName) {
   activeView = viewName;
   const isTree = viewName === "tree";
@@ -582,6 +617,7 @@ function setView(viewName) {
   if (!isTree) renderGraph();
 }
 
+// Funcion: cambia el modo del grafo entre crear, unir o mover.
 function setGraphMode(mode) {
   graphMode = mode;
   pendingEdgeFromId = null;
@@ -592,6 +628,7 @@ function setGraphMode(mode) {
   renderGraph();
 }
 
+// Funcion: crea un nodo visual en el grafo.
 function createGraphNode(x, y, label = null) {
   const id = graphNextId++;
   const node = {
@@ -607,6 +644,7 @@ function createGraphNode(x, y, label = null) {
   renderGraph();
 }
 
+// Funcion: agrega o actualiza una arista dirigida con peso.
 function addGraphEdge(fromId, toId, weight) {
   const parsedWeight = Number(weight);
   if (!Number.isFinite(parsedWeight) || parsedWeight < 0) {
@@ -635,6 +673,7 @@ function addGraphEdge(fromId, toId, weight) {
   return true;
 }
 
+
 function graphPointFromEvent(event) {
   const rect = graphArea.getBoundingClientRect();
   return {
@@ -643,6 +682,7 @@ function graphPointFromEvent(event) {
   };
 }
 
+// Funcion: redibuja el grafo completo.
 function renderGraph() {
   graphArea.innerHTML = "";
   graphEdges.innerHTML = "";
@@ -653,8 +693,10 @@ function renderGraph() {
   updateGraphEditor();
   updateEdgeList();
   updateNodeSelectOptions();
+  renderGraphPathOverlay();
 }
 
+// Funcion: ajusta el SVG donde se dibujan las flechas del grafo.
 function ensureGraphSvgSize() {
   const width = graphArea.offsetWidth || 1200;
   const height = graphArea.offsetHeight || 720;
@@ -664,6 +706,7 @@ function ensureGraphSvgSize() {
   graphEdges.style.height = `${height}px`;
 }
 
+// Funcion: dibuja la punta de flecha para las aristas dirigidas.
 function drawGraphMarkers() {
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
@@ -682,6 +725,7 @@ function drawGraphMarkers() {
   graphEdges.appendChild(defs);
 }
 
+// Funcion: dibuja las aristas y sus pesos.
 function drawGraphEdges() {
   graphEdgesData.forEach((edge) => {
     const from = getGraphNode(edge.fromId);
@@ -738,6 +782,7 @@ function drawGraphEdges() {
   });
 }
 
+// Funcion: dibuja los nodos del grafo.
 function drawGraphNodes() {
   graphNodes.forEach((node) => {
     const button = document.createElement("button");
@@ -759,6 +804,7 @@ function drawGraphNodes() {
   });
 }
 
+// Funcion: calcula los puntos de inicio y fin de una arista.
 function edgePoints(edge, from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -779,11 +825,13 @@ function edgePoints(edge, from, to) {
   };
 }
 
+// Funcion: arma la ruta SVG de una arista recta o curva.
 function edgePath(points) {
   if (!points.curved) return `M ${points.x1} ${points.y1} L ${points.x2} ${points.y2}`;
   return `M ${points.x1} ${points.y1} Q ${points.cx} ${points.cy} ${points.x2} ${points.y2}`;
 }
 
+// Funcion: calcula donde colocar el peso de una arista.
 function edgeLabelPoint(points) {
   if (!points.curved) {
     return {
@@ -798,6 +846,7 @@ function edgeLabelPoint(points) {
   };
 }
 
+// Funcion: maneja el clic sobre un nodo del grafo.
 function handleGraphNodeClick(nodeId) {
   selectedGraphNodeId = nodeId;
   selectedGraphEdgeId = null;
@@ -817,6 +866,7 @@ function handleGraphNodeClick(nodeId) {
   renderGraph();
 }
 
+// Funcion: permite arrastrar un nodo del grafo.
 function startNodeDrag(event, nodeId) {
   if (graphMode === "connect") return;
   event.preventDefault();
@@ -848,6 +898,7 @@ function startNodeDrag(event, nodeId) {
   document.addEventListener("pointercancel", up);
 }
 
+// Funcion: actualiza el editor lateral del grafo.
 function updateGraphEditor() {
   const node = getGraphNode(selectedGraphNodeId);
   if (!node) {
@@ -871,6 +922,7 @@ function updateGraphEditor() {
   }
 }
 
+// Funcion: muestra la lista editable de aristas.
 function updateEdgeList() {
   if (!graphEdgesData.length) {
     edgeList.textContent = "No hay arcos.";
@@ -912,6 +964,7 @@ function updateEdgeList() {
   });
 }
 
+// Funcion: llena los selectores de nodo inicial y final.
 function updateNodeSelectOptions() {
   const previousStart = startNodeSelect.value;
   const previousEnd = endNodeSelect.value;
@@ -945,6 +998,7 @@ function updateNodeSelectOptions() {
   }
 }
 
+// Funcion: convierte el grafo a matriz de adyacencia para los algoritmos.
 function adjacencyMatrix() {
   const nodes = [...graphNodes].sort((a, b) => a.id - b.id);
   const indexById = new Map(nodes.map((node, index) => [node.id, index]));
@@ -960,19 +1014,29 @@ function adjacencyMatrix() {
   return { nodes, matrix, indexById };
 }
 
+// Funcion: decide si ejecutar Dijkstra o Floyd segun el selector.
 function runSelectedAlgorithm() {
   if (!graphNodes.length) {
+    clearHighlights();
     pathSummary.textContent = "Crea al menos un nodo.";
+    algorithmTiming.textContent = "Tiempo real de busqueda: sin calcular.";
+    renderGraph();
     return;
   }
   const startId = Number(startNodeSelect.value);
   if (!getGraphNode(startId)) {
+    clearHighlights();
     pathSummary.textContent = "Selecciona un nodo inicial valido.";
+    algorithmTiming.textContent = "Tiempo real de busqueda: sin calcular.";
+    renderGraph();
     return;
   }
   const endId = Number(endNodeSelect.value);
   if (!getGraphNode(endId)) {
+    clearHighlights();
     pathSummary.textContent = "Selecciona un nodo final valido.";
+    algorithmTiming.textContent = "Tiempo real de busqueda: sin calcular.";
+    renderGraph();
     return;
   }
 
@@ -983,13 +1047,47 @@ function runSelectedAlgorithm() {
   }
 }
 
-function dijkstra(startId) {
-  const { nodes, matrix, indexById } = adjacencyMatrix();
+function renderAlgorithmTiming(algorithm, timing) {
+  const name = algorithm === "floyd" ? "Floyd-Warshall" : "Dijkstra";
+  algorithmTiming.textContent =
+    `Tiempo real promedio de busqueda (${name}): ${formatElapsedMs(timing.averageMs)} ms `;
+}
+
+
+function measureSearchTime(searchFn) {
+  for (let i = 0; i < TIMING_WARMUP_RUNS; i++) searchFn();
+
+  let runs = 0;
+  const startTime = performance.now();
+  let elapsedMs = 0;
+
+  do {
+    searchFn();
+    runs++;
+    elapsedMs = performance.now() - startTime;
+  } while (elapsedMs < TIMING_MIN_TOTAL_MS && runs < TIMING_MAX_RUNS);
+
+  return {
+    runs,
+    totalMs: elapsedMs,
+    averageMs: runs ? elapsedMs / runs : 0,
+  };
+}
+
+function formatElapsedMs(value) {
+  if (value < 0.01) return value.toFixed(4);
+  if (value < 1) return value.toFixed(3);
+  return value.toFixed(2);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////7--------------------------------------------------------------------------------------------------------
+function dijkstra(startId, collectSteps = true, graphData = adjacencyMatrix()) {
+  const { nodes, matrix, indexById } = graphData;
   const startIndex = indexById.get(startId);
   const distances = nodes.map(() => INF);
   const previous = nodes.map(() => null);
   const visited = nodes.map(() => false);
-  const steps = [];
+  const steps = collectSteps ? [] : null;
   distances[startIndex] = 0;
 
   for (let count = 0; count < nodes.length; count++) {
@@ -1004,7 +1102,7 @@ function dijkstra(startId) {
 
     if (current === -1) break;
     visited[current] = true;
-    const updates = [];
+    const updates = collectSteps ? [] : null;
 
     for (let neighbor = 0; neighbor < nodes.length; neighbor++) {
       const weight = matrix[current][neighbor];
@@ -1013,44 +1111,57 @@ function dijkstra(startId) {
       if (candidate < distances[neighbor]) {
         distances[neighbor] = candidate;
         previous[neighbor] = current;
-        updates.push(`${graphNodeDisplayLabel(nodes[neighbor])}=${formatDistance(candidate)} via ${graphNodeDisplayLabel(nodes[current])}`);
+        if (collectSteps) {
+          updates.push(`${graphNodeDisplayLabel(nodes[neighbor])}=${formatDistance(candidate)} via ${graphNodeDisplayLabel(nodes[current])}`);
+        }
       }
     }
 
-    steps.push({
-      node: graphNodeDisplayLabel(nodes[current]),
-      updates: updates.length ? updates : ["sin mejoras"],
-      distances: [...distances],
-    });
+    if (collectSteps) {
+      steps.push({
+        node: graphNodeDisplayLabel(nodes[current]),
+        updates: updates.length ? updates : ["sin mejoras"],
+        distances: [...distances],
+      });
+    }
   }
 
-  return { nodes, distances, previous, steps, startIndex };
+  return { nodes, distances, previous, steps: steps || [], startIndex };
 }
 
+
 function renderDijkstraResult(startId, endId) {
-  const result = dijkstra(startId);
+  const graphData = adjacencyMatrix();
+  const result = dijkstra(startId, true, graphData);
+  const timing = measureSearchTime(() => dijkstra(startId, false, graphData));
   const startNode = getGraphNode(startId);
   const endNode = getGraphNode(endId);
   const endIndex = result.nodes.findIndex((node) => node.id === endId);
   const shortestPath = endIndex >= 0 ? buildPath(result.nodes, result.previous, endIndex, result.startIndex) : [];
+  const shortestCost = result.distances[endIndex];
   highlightedEdgeIds = new Set();
   highlightedNodeIds = new Set([startId]);
 
   markPath(shortestPath);
-  renderDifferentPaths(startId, endId, result.distances[endIndex], shortestPath);
-  pathSummary.textContent = `Camino  calculado con Dijkstra de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)}. camino minimo: ${formatDistance(result.distances[endIndex])}.`;
+  setShortestPathInfo("Dijkstra", startNode, endNode, shortestCost, shortestPath);
+  renderDifferentPaths(startId, endId, shortestCost, shortestPath);
+  pathSummary.textContent = Number.isFinite(shortestCost)
+    ? `Camino calculado con Dijkstra de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)}. Camino minimo: ${formatDistance(shortestCost)}.`
+    : `No hay camino de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)} con Dijkstra.`;
+  renderAlgorithmTiming("dijkstra", timing);
   renderSteps(result.steps);
   renderGraph();
 }
-
-function floydWarshall() {
-  const { nodes, matrix } = adjacencyMatrix();
+///////////////////////////////////////////////////////////////////////////////////////////////7--------------------------------------------------------------------------------------------------------
+// Funcion: algoritmo de Floyd-Warshall para caminos minimos entre todos los nodos.
+function floydWarshall(collectSteps = true, graphData = adjacencyMatrix()) {
+  const { nodes, matrix } = graphData;
   const dist = matrix.map((row) => [...row]);
   const next = nodes.map((_, i) => nodes.map((__, j) => (dist[i][j] !== INF && i !== j ? j : null)));
-  const steps = [];
+  const steps = collectSteps ? [] : null;
 
   for (let k = 0; k < nodes.length; k++) {
-    const updates = [];
+    const updates = collectSteps ? [] : null;
     for (let i = 0; i < nodes.length; i++) {
       for (let j = 0; j < nodes.length; j++) {
         if (dist[i][k] === INF || dist[k][j] === INF) continue;
@@ -1058,33 +1169,91 @@ function floydWarshall() {
         if (candidate < dist[i][j]) {
           dist[i][j] = candidate;
           next[i][j] = next[i][k];
-          updates.push(`${graphNodeDisplayLabel(nodes[i])}->${graphNodeDisplayLabel(nodes[j])}=${formatDistance(candidate)} pasando por ${graphNodeDisplayLabel(nodes[k])}`);
+          if (collectSteps) {
+            updates.push(`${graphNodeDisplayLabel(nodes[i])}->${graphNodeDisplayLabel(nodes[j])}=${formatDistance(candidate)} pasando por ${graphNodeDisplayLabel(nodes[k])}`);
+          }
         }
       }
     }
-    steps.push({ node: graphNodeDisplayLabel(nodes[k]), updates: updates.length ? updates : ["sin mejoras"] });
+    if (collectSteps) {
+      steps.push({ node: graphNodeDisplayLabel(nodes[k]), updates: updates.length ? updates : ["sin mejoras"] });
+    }
   }
 
-  return { nodes, dist, next, steps };
+  return { nodes, dist, next, steps: steps || [] };
 }
-
+///////////////////////////////////////////////////////////////////////////////////////////////7--------------------------------------------------------------------------------------------------------
 function renderFloydResult(startId, endId) {
-  const result = floydWarshall();
+  const graphData = adjacencyMatrix();
+  const result = floydWarshall(true, graphData);
+  const timing = measureSearchTime(() => floydWarshall(false, graphData));
   const startIndex = result.nodes.findIndex((node) => node.id === startId);
   const endIndex = result.nodes.findIndex((node) => node.id === endId);
   const startNode = getGraphNode(startId);
   const endNode = getGraphNode(endId);
   const shortestPath = startIndex >= 0 && endIndex >= 0 ? buildFloydPath(result.nodes, result.next, startIndex, endIndex) : [];
+  const shortestCost = result.dist[startIndex][endIndex];
   highlightedEdgeIds = new Set();
   highlightedNodeIds = new Set([startId]);
 
   markPath(shortestPath);
-  renderDifferentPaths(startId, endId, result.dist[startIndex][endIndex], shortestPath);
-  pathSummary.textContent = `Floyd-Warshall calculado de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)}. Costo minimo: ${formatDistance(result.dist[startIndex][endIndex])}.`;
+  setShortestPathInfo("Floyd-Warshall", startNode, endNode, shortestCost, shortestPath);
+  renderDifferentPaths(startId, endId, shortestCost, shortestPath);
+  pathSummary.textContent = Number.isFinite(shortestCost)
+    ? `Floyd-Warshall calculado de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)}. Costo minimo: ${formatDistance(shortestCost)}.`
+    : `No hay camino de ${graphNodeDisplayLabel(startNode)} a ${graphNodeDisplayLabel(endNode)} con Floyd-Warshall.`;
+  renderAlgorithmTiming("floyd", timing);
   renderSteps(result.steps);
   renderGraph();
 }
 
+// Funcion: guarda la informacion del camino minimo calculado.
+function setShortestPathInfo(algorithm, startNode, endNode, cost, path) {
+  currentShortestPathInfo = {
+    algorithm,
+    startLabel: graphNodeDisplayLabel(startNode),
+    endLabel: graphNodeDisplayLabel(endNode),
+    cost,
+    route: path.map((node) => graphNodeDisplayLabel(node)).join(" -> "),
+  };
+}
+
+// Funcion: muestra una etiqueta flotante con el camino minimo.
+function renderGraphPathOverlay() {
+  graphPathOverlay.innerHTML = "";
+  if (!currentShortestPathInfo) {
+    graphPathOverlay.classList.add("hidden");
+    graphPathOverlay.removeAttribute("style");
+    return;
+  }
+
+  const title = document.createElement("div");
+  title.className = "graph-path-title";
+  title.textContent = `Camino mas corto (${currentShortestPathInfo.algorithm})`;
+
+  const route = document.createElement("div");
+  route.className = "graph-path-route";
+  route.textContent = currentShortestPathInfo.route || `No hay camino de ${currentShortestPathInfo.startLabel} a ${currentShortestPathInfo.endLabel}`;
+
+  const cost = document.createElement("div");
+  cost.className = "graph-path-cost";
+  cost.textContent = Number.isFinite(currentShortestPathInfo.cost)
+    ? `Peso total: ${formatDistance(currentShortestPathInfo.cost)}`
+    : "Peso total: INF";
+
+  graphPathOverlay.append(title, route, cost);
+  graphPathOverlay.classList.remove("hidden");
+  updateGraphPathOverlayPosition();
+}
+
+// Funcion: mantiene la etiqueta del camino minimo al hacer scroll.
+function updateGraphPathOverlayPosition() {
+  const scroll = document.querySelector(".graph-scroll");
+  if (!scroll || graphPathOverlay.classList.contains("hidden")) return;
+  graphPathOverlay.style.transform = `translate(${scroll.scrollLeft}px, ${scroll.scrollTop}px)`;
+}
+
+// Funcion: imprime los pasos del algoritmo seleccionado.
 function renderSteps(steps) {
   stepsBox.innerHTML = "";
   steps.forEach((step, index) => {
@@ -1095,6 +1264,7 @@ function renderSteps(steps) {
   });
 }
 
+// Funcion: reconstruye el camino obtenido por Dijkstra.
 function buildPath(nodes, previous, targetIndex, startIndex) {
   const path = [];
   let current = targetIndex;
@@ -1111,7 +1281,7 @@ function buildPath(nodes, previous, targetIndex, startIndex) {
   }
   return path;
 }
-
+// Funcion: reconstruye el camino obtenido por Floyd-Warshall.
 function buildFloydPath(nodes, next, fromIndex, toIndex) {
   if (fromIndex === toIndex) return [nodes[fromIndex]];
   if (next[fromIndex][toIndex] === null) return [];
@@ -1128,6 +1298,7 @@ function buildFloydPath(nodes, next, fromIndex, toIndex) {
   return path;
 }
 
+// Funcion: resalta en verde los nodos y aristas del camino.
 function markPath(path) {
   if (!path.length) return;
   path.forEach((node) => highlightedNodeIds.add(node.id));
@@ -1137,6 +1308,7 @@ function markPath(path) {
   }
 }
 
+// Funcion: muestra una tabla con caminos posibles ordenados por peso.
 function renderDifferentPaths(startId, endId, shortestCost, shortestPath) {
   const allowWalks = pathModeSelect.value === "walks";
   const paths = collectGraphPaths(startId, endId, allowWalks);
@@ -1199,6 +1371,7 @@ function renderDifferentPaths(startId, endId, shortestCost, shortestPath) {
   }
 }
 
+// Funcion: recopila caminos posibles entre dos nodos.
 function collectGraphPaths(startId, endId, allowWalks) {
   const start = getGraphNode(startId);
   const end = getGraphNode(endId);
@@ -1208,6 +1381,7 @@ function collectGraphPaths(startId, endId, allowWalks) {
   const maxResults = allowWalks ? 1000 : 5000;
   const paths = [];
 
+  // Funcion interna: recorre caminos posibles de forma recursiva.
   function visit(currentId, nodes, edges, cost, visited) {
     if (paths.length >= maxResults) return;
     if (currentId === endId) {
@@ -1234,36 +1408,39 @@ function collectGraphPaths(startId, endId, allowWalks) {
   return paths.sort((a, b) => a.cost - b.cost || a.edges.length - b.edges.length || pathLabel(a).localeCompare(pathLabel(b)));
 }
 
+// Funcion: convierte un camino a texto para poder ordenarlo.
 function pathLabel(pathInfo) {
   return pathInfo.nodes.map((node) => graphNodeDisplayLabel(node)).join("->");
 }
 
+// Funcion: compara si dos caminos tienen los mismos nodos.
 function samePath(left, right) {
   if (!left.length || !right.length || left.length !== right.length) return false;
   return left.every((node, index) => node.id === right[index].id);
 }
 
+// Funcion: carga un grafo de ejemplo para probar recorridos.
 function loadDemoGraph() {
   graphNextId = 8;
   graphNodes = [
-    { id: 1, label: "1", x: 120, y: 130 },
-    { id: 2, label: "2", x: 330, y: 90 },
-    { id: 3, label: "3", x: 520, y: 150 },
-    { id: 4, label: "4", x: 300, y: 300 },
-    { id: 5, label: "5", x: 530, y: 340 },
-    { id: 6, label: "6", x: 760, y: 190 },
-    { id: 7, label: "7", x: 760, y: 390 },
+    { id: 1, label: "1", x: 560, y: 80 },
+    { id: 2, label: "2", x: 330, y: 190 },
+    { id: 3, label: "3", x: 810, y: 190 },
+    { id: 4, label: "4", x: 570, y: 340 },
+    { id: 5, label: "5", x: 330, y: 450 },
+    { id: 6, label: "6", x: 820, y: 455 },
+    { id: 7, label: "7", x: 590, y: 610 },
   ];
   graphEdgesData = [
-    { id: "e1", fromId: 1, toId: 3, weight: 10 },
-    { id: "e2", fromId: 1, toId: 4, weight: 18 },
+    { id: "e1", fromId: 1, toId: 2, weight: 10 },
+    { id: "e2", fromId: 1, toId: 3, weight: 18 },
     { id: "e3", fromId: 2, toId: 3, weight: 6 },
     { id: "e4", fromId: 2, toId: 5, weight: 3 },
-    { id: "e5", fromId: 3, toId: 4, weight: 3 },
-    { id: "e6", fromId: 3, toId: 6, weight: 20 },
-    { id: "e7", fromId: 4, toId: 3, weight: 2 },
-    { id: "e8", fromId: 4, toId: 7, weight: 2 },
-    { id: "e9", fromId: 5, toId: 4, weight: 8 },
+    { id: "e5", fromId: 3, toId: 4, weight: 2 },
+    { id: "e6", fromId: 4, toId: 3, weight: 3 },
+    { id: "e7", fromId: 3, toId: 6, weight: 20 },
+    { id: "e8", fromId: 5, toId: 4, weight: 8 },
+    { id: "e9", fromId: 4, toId: 7, weight: 2 },
     { id: "e10", fromId: 5, toId: 7, weight: 10 },
     { id: "e11", fromId: 7, toId: 6, weight: 5 },
   ];
@@ -1274,6 +1451,7 @@ function loadDemoGraph() {
   renderGraph();
 }
 
+// Funcion: limpia todos los nodos y aristas del grafo.
 function clearGraphData() {
   graphNextId = 1;
   graphNodes = [];
@@ -1283,30 +1461,36 @@ function clearGraphData() {
   pendingEdgeFromId = null;
   clearHighlights();
   pathSummary.textContent = "Crea un digrafo ponderado para calcular.";
+  algorithmTiming.textContent = "Tiempo real de busqueda: sin calcular.";
   pathsTable.textContent = "Sin calculo todavia.";
   stepsBox.textContent = "Ejecuta un algoritmo para ver el recorrido.";
   renderGraph();
 }
 
+// Funcion: busca un nodo del grafo por id.
 function getGraphNode(id) {
   return graphNodes.find((node) => node.id === Number(id)) || null;
 }
 
+// Funcion: busca una arista del grafo por id.
 function getGraphEdge(id) {
   return graphEdgesData.find((edge) => edge.id === id) || null;
 }
 
+// Funcion: obtiene el nombre visible de un nodo.
 function graphNodeDisplayLabel(node) {
   if (!node) return "?";
   return String(node.label || "").trim() || String(node.id);
 }
 
+// Funcion: obtiene el texto visible de una arista.
 function graphEdgeDisplayLabel(edge) {
   const from = getGraphNode(edge.fromId);
   const to = getGraphNode(edge.toId);
   return `${graphNodeDisplayLabel(from)} -> ${graphNodeDisplayLabel(to)}`;
 }
 
+// Funcion: selecciona una arista para editarla.
 function selectGraphEdge(edgeId) {
   if (!getGraphEdge(edgeId)) return;
   selectedGraphEdgeId = edgeId;
@@ -1316,6 +1500,7 @@ function selectGraphEdge(edgeId) {
   renderGraph();
 }
 
+// Funcion: cambia el peso de una arista.
 function setGraphEdgeWeight(edgeId, rawWeight) {
   const edge = getGraphEdge(edgeId);
   const text = String(rawWeight).trim();
@@ -1334,6 +1519,7 @@ function setGraphEdgeWeight(edgeId, rawWeight) {
   return true;
 }
 
+// Funcion: elimina una arista del grafo.
 function removeGraphEdge(edgeId) {
   graphEdgesData = graphEdgesData.filter((edge) => edge.id !== edgeId);
   if (selectedGraphEdgeId === edgeId) selectedGraphEdgeId = null;
@@ -1342,19 +1528,24 @@ function removeGraphEdge(edgeId) {
   renderGraph();
 }
 
+// Funcion: limpia los resaltados del camino calculado.
 function clearHighlights() {
   highlightedEdgeIds = new Set();
   highlightedNodeIds = new Set();
+  currentShortestPathInfo = null;
 }
 
+// Funcion: formatea distancias infinitas o numericas.
 function formatDistance(value) {
   return value === INF ? "INF" : cleanNumber(value);
 }
 
+// Funcion: limita un valor dentro de un rango.
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+// Funcion: evita que texto escrito por el usuario rompa el HTML.
 function escapeHtml(text) {
   return String(text)
     .replaceAll("&", "&amp;")
@@ -1501,13 +1692,18 @@ clearGraph.addEventListener("click", clearGraphData);
 runAlgorithm.addEventListener("click", runSelectedAlgorithm);
 algorithmSelect.addEventListener("change", () => {
   clearHighlights();
+  pathSummary.textContent = "Ejecuta el algoritmo seleccionado para ver el camino mas corto.";
+  algorithmTiming.textContent = "Tiempo real de busqueda: sin calcular.";
+  pathsTable.textContent = "Sin calculo todavia.";
   stepsBox.textContent = "Ejecuta un algoritmo para ver el recorrido.";
   renderGraph();
 });
+document.querySelector(".graph-scroll").addEventListener("scroll", updateGraphPathOverlayPosition);
 centerGraph.addEventListener("click", () => {
   const scroll = document.querySelector(".graph-scroll");
   scroll.scrollLeft = Math.max(0, (graphArea.scrollWidth - scroll.clientWidth) / 2);
   scroll.scrollTop = Math.max(0, (graphArea.scrollHeight - scroll.clientHeight) / 2);
+  updateGraphPathOverlayPosition();
 });
 
 if (new URLSearchParams(window.location.search).has("demo")) {
@@ -1517,3 +1713,4 @@ if (new URLSearchParams(window.location.search).has("demo")) {
 }
 
 renderGraph();
+

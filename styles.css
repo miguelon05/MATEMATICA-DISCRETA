@@ -202,6 +202,42 @@ input {
   background-size: 28px 28px;
 }
 
+.graph-path-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  max-width: min(520px, calc(100% - 24px));
+  padding: 10px 12px;
+  border: 1px solid #b9e0c7;
+  border-radius: 6px;
+  background: rgba(232, 255, 242, 0.94);
+  box-shadow: 0 8px 24px rgba(21, 21, 21, 0.12);
+  pointer-events: none;
+}
+
+.graph-path-title {
+  color: #126c3d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.graph-path-route {
+  color: #111;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.graph-path-cost {
+  color: #333;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 #edgesLayer,
 #graphEdges {
   position: absolute;
@@ -408,6 +444,13 @@ input {
 .result-paths {
   margin-top: 10px;
   max-height: 220px;
+}
+
+.timing-box {
+  min-height: 42px;
+  margin-top: 8px;
+  background: #fff;
+  font-weight: 700;
 }
 
 .data-grid {
